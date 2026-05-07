@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Supabase Store</title>
+
+<style>
+body {font-family: Arial; margin:0; background:#f5f5f5;}
+header {background:#111; color:#fff; padding:15px; text-align:center;}
+.container {display:flex; flex-wrap:wrap; padding:20px;}
+.product {background:#fff; border-radius:10px; padding:15px; margin:10px; width:200px; box-shadow:0 2px 5px rgba(0,0,0,0.2);}
+.product img {width:100%; border-radius:10px;}
+button {padding:8px 12px; border:none; border-radius:5px; cursor:pointer;}
+.add {background:green; color:#fff;}
+.cart-btn {position:fixed; top:20px; right:20px; background:#ff6600; color:#fff;}
+.cart {position:fixed; right:0; top:0; width:320px; height:100%; background:#fff; box-shadow:-2px 0 5px rgba(0,0,0,0.3); padding:20px; display:none; overflow-y:auto;}
+.cart-item {display:flex; justify-content:space-between; margin-bottom:10px;}
+.qty {display:flex; gap:5px;}
+.search {padding:10px; width:100%; margin-bottom:10px;}
+.error {color:red; text-align:center; padding:10px;}
+</style>
+</head>
+
+<body>
+<header>
+<h1>My Supabase Store</h1>
+</header>
+
+<button class="cart-btn" onclick="toggleCart()">Cart (<span id="count">0</span>)</button>
+
+<div class="cart" id="cart">
+<h2>Your Cart</h2>
+<div id="cartItems"></div>
+<h3>Total: ₦<span id="total">0</span></h3>
+<button onclick="checkout()">Order via WhatsApp</button>
+<button onclick="clearCart()">Clear Cart</button>
+<button onclick="toggleCart()">Close</button>
+</div>
+
+<div style="padding:20px;">
+<input type="text" class="search" id="search" placeholder="Search products..." onkeyup="searchProduct()"/>
+</div>
+
+<div id="error" class="error"></div>
+<div class="container" id="products"></div>
+
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+// 🔑 YOUR SUPABASE KEYS
+const supabaseUrl = "https://bldyxmzospuaqsyczaxa.supabase.co"; // ✅ MUST start with https://
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsZHl4bXpvc3B1YXFzeWN6YXhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNzU5NDQsImV4cCI6MjA5MzY1MTk0NH0.TgS198UeLjblnJM-a5aEYIlmEbaZXwQk8POjYFeKhhI";
+
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+let productList = [];
+let cart = JSON.parse(localStorage.getItem('cart')) || [];
+
+// ================= LOAD PRODUCTS =================
+async function loadProducts(){
+  const { data, error } = await supabase.from('products').select('*');
+
+  if(error){
+    console.error(error);
+    document.getElementById('error').innerText = "❌ Failed to load products";
+    return;
+  }
+
+  productList = data || [];
+  displayProducts(productList);
+}
+
+function displayProducts(list){
+  const container = document.getElementById('products');
+  container.innerHTML = '';
+
+  if(list.length === 0){
+    container.innerHTML = '<p>No products found</p>';
+    return;
+  }
+
+  list.forEach(p => {
+    console.log("IMAGE:", p.image);
+    container.innerHTML += `
+    <div class="product">
+      <img src="${p.image}" onerror="this.src='https://via.placeholder.com/200'" />
+      <h3>${p.name}</h3>
+      <p>₦${p.price}</p>
+      <button class="add" onclick="addToCart('${p.id}')">Add to Cart</button>
+    </div>`;
+  });
+}
+
+// ================= CART =================
+window.addToCart = function(id){
+  let item = cart.find(p => p.id == id);
+  let product = productList.find(p => p.id == id);
+
+  if(!product) return;
+
+  if(item){ item.qty++; }
+  else { cart.push({...product, qty:1}); }
+
+  saveCart();
+}
+
+window.removeItem = function(id){
+  cart = cart.filter(p => p.id != id);
+  saveCart();
+}
+
+window.changeQty = function(id,delta){
+  let item = cart.find(p => p.id == id);
+
+  if(item){
+    item.qty += delta;
+    if(item.qty <= 0) removeItem(id);
+  }
+
+  saveCart();
+}
+
+function saveCart(){
+  localStorage.setItem('cart', JSON.stringify(cart));
+  renderCart();
+}
+
+function renderCart(){
+  const items = document.getElementById('cartItems');
+  const totalEl = document.getElementById('total');
+  const count = document.getElementById('count');
+
+  items.innerHTML = '';
+  let total = 0, c = 0;
+
+  cart.forEach(p => {
+    total += p.price * p.qty;
+    c += p.qty;
+
+    items.innerHTML += `
+    <div class="cart-item">
+      <span>${p.name}</span>
+      <div class="qty">
+        <button onclick="changeQty('${p.id}',-1)">-</button>
+        <span>${p.qty}</span>
+        <button onclick="changeQty('${p.id}',1)">+</button>
+      </div>
+      <button onclick="removeItem('${p.id}')">❌</button>
+    </div>`;
+  });
+
+  totalEl.innerText = total;
+  count.innerText = c;
+}
+
+window.toggleCart = function(){
+  const el = document.getElementById('cart');
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+window.clearCart = function(){
+  cart = [];
+  saveCart();
+}
+
+// ================= CHECKOUT =================
+window.checkout = function(){
+  let message = "Hello, I want to order:%0A";
+
+  cart.forEach(p => {
+    message += `${p.name} x${p.qty} - ₦${p.price * p.qty}%0A`;
+  });
+
+  message += `Total: ₦${document.getElementById('total').innerText}`;
+
+  const phone = "2349070140698";
+  window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+
+  clearCart();
+}
+
+// ================= SEARCH =================
+window.searchProduct = function(){
+  let val = document.getElementById('search').value.toLowerCase();
+  let filtered = productList.filter(p => p.name.toLowerCase().includes(val));
+  displayProducts(filtered);
+}
+
+renderCart();
+loadProducts();
+</script>
+
+</body>
+</html>
